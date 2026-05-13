@@ -144,7 +144,7 @@ Set via `wrangler secret put` in `packages/backend`:
 
 The structure compiles and exports the right types. Implementations are
 mostly TODOs that throw or return typed stubs. Roadmap order, per the
-[strategy doc](https://github.com/proappstore-online/sdk/blob/main/STRATEGY.md):
+[strategy doc](https://github.com/proappstore-online/platform/blob/main/STRATEGY.md):
 
 1. Stripe webhook receiver (slice 1)
 2. D1 schema for `subscriptions` and `license_keys`

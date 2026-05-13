@@ -7,7 +7,7 @@ primitives.
 > **v0 status: skeleton.** Public API surfaces are defined; backend
 > implementations are stubs. The published packages compile and export the
 > right types — bodies will land iteratively. Read the [strategy
-> doc](https://github.com/proappstore-online/sdk/blob/main/STRATEGY.md) for
+> doc](https://github.com/proappstore-online/platform/blob/main/STRATEGY.md) for
 > the bet, then this site for how it fits together.
 
 ## Tech stack

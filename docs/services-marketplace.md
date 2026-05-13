@@ -46,7 +46,7 @@ marketplace complexity. Only worth building when volume justifies it.
 
 Build Tier 1 first. Only build Tier 2/3/4 when there's real signal that
 publishers want to sell services and customers want to buy them. This
-order is in the [strategy doc](https://github.com/proappstore-online/sdk/blob/main/STRATEGY.md);
+order is in the [strategy doc](https://github.com/proappstore-online/platform/blob/main/STRATEGY.md);
 the punchline is **don't build payments rails until lead gen proves
 demand**.
 
