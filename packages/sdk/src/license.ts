@@ -1,37 +1,40 @@
 import type { LicenseInfo } from './types.js';
 
+interface AuthLike {
+  token: string | null;
+  handleUnauthorized(): void;
+}
+
 export class LicenseApi {
   constructor(
     private readonly appId: string,
     private readonly apiBase: string,
-    private readonly token: () => string | null,
+    private readonly auth: AuthLike,
   ) {}
 
   /** Returns the license info for the signed-in user, or null. */
   async current(): Promise<LicenseInfo | null> {
-    const token = this.token();
+    const token = this.auth.token;
     if (!token) return null;
-    const res = await fetch(
+    const response = await fetch(
       new URL(`/v1/apps/${encodeURIComponent(this.appId)}/license`, this.apiBase),
       { headers: { Authorization: `Bearer ${token}` } },
     );
-    if (res.status === 404) return null;
-    if (!res.ok) throw new Error(`license.current failed: ${res.status}`);
-    return (await res.json()) as LicenseInfo;
+    if (response.status === 401) { this.auth.handleUnauthorized(); return null; }
+    if (response.status === 404) return null;
+    if (!response.ok) throw new Error(`license.current failed: ${response.status}`);
+    return (await response.json()) as LicenseInfo;
   }
 
-  /**
-   * Validate an arbitrary license key against the server. Useful for cases
-   * where the key is delivered out-of-band (email, manual entry).
-   */
+  /** Validate an arbitrary license key against the server (no auth required). */
   async validate(key: string): Promise<boolean> {
-    const res = await fetch(new URL('/v1/license/validate', this.apiBase), {
+    const response = await fetch(new URL('/v1/license/validate', this.apiBase), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ appId: this.appId, key }),
     });
-    if (!res.ok) return false;
-    const { valid } = (await res.json()) as { valid: boolean };
+    if (!response.ok) return false;
+    const { valid } = (await response.json()) as { valid: boolean };
     return valid;
   }
 }

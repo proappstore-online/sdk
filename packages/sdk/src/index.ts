@@ -1,6 +1,18 @@
+import { FreeAppStore } from '@freeappstore/sdk';
 import { SubscriptionApi } from './subscription.js';
 import { LicenseApi } from './license.js';
 import type { ProInitOptions } from './types.js';
+
+// Re-export everything from FAS SDK so pro apps only need one import
+export type {
+  User,
+  Unsubscribe,
+  FasInitOptions,
+  ConnectionState,
+  Room,
+  RoomMessage,
+  RoomPeer,
+} from '@freeappstore/sdk';
 
 export type {
   ProInitOptions,
@@ -10,19 +22,25 @@ export type {
   LicenseInfo,
 } from './types.js';
 
-export class ProAppStore {
+/**
+ * Pro SDK instance — includes everything from @freeappstore/sdk (auth, kv,
+ * counters, rooms, proxy) plus subscription management and license keys.
+ *
+ * One import, one instance, all features.
+ */
+export class ProAppStore extends FreeAppStore {
   readonly subscription: SubscriptionApi;
   readonly license: LicenseApi;
 
   constructor(opts: ProInitOptions) {
-    const apiBase = opts.apiBase ?? 'https://api.proappstore.online';
-    const tokenFn =
-      typeof opts.authToken === 'function' ? opts.authToken : () => opts.authToken as string;
-    this.subscription = new SubscriptionApi(opts.appId, apiBase, tokenFn);
-    this.license = new LicenseApi(opts.appId, apiBase, tokenFn);
+    super({ appId: opts.appId, ...(opts.fasApiBase && { apiBase: opts.fasApiBase }) });
+    const proApiBase = opts.proApiBase ?? 'https://api.proappstore.online';
+    this.subscription = new SubscriptionApi(opts.appId, proApiBase, this.auth);
+    this.license = new LicenseApi(opts.appId, proApiBase, this.auth);
   }
 }
 
+/** Create a new ProAppStore SDK instance. Includes all free + pro features. */
 export function initPro(opts: ProInitOptions): ProAppStore {
   return new ProAppStore(opts);
 }

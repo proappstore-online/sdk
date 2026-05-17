@@ -1,13 +1,9 @@
 export interface ProInitOptions {
   appId: string;
-  /** Defaults to https://api.proappstore.online */
-  apiBase?: string;
-  /**
-   * Bearer token from @freeappstore/sdk. Pro builds on top of free identity —
-   * the user is the same; pro just adds subscription state. Pass
-   * `fas.auth.token` here once the free auth flow has signed the user in.
-   */
-  authToken: string | (() => string | null);
+  /** Defaults to https://api.freeappstore.online (free-tier backend). */
+  fasApiBase?: string;
+  /** Defaults to https://api.proappstore.online (pro-tier backend). */
+  proApiBase?: string;
 }
 
 export type SubscriptionStatus = 'active' | 'past_due' | 'canceled' | 'incomplete';
