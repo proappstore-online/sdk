@@ -1,63 +1,57 @@
-# ProAppStore SDK
+# ProAppStore Platform
 
-Paid SDK + CLI + backend for apps published on **proappstore.online**.
+Unified SDK + CLI + backend for premium apps on **proappstore.online**.
 
-> **v0 status: skeleton.** Public API surfaces are defined; implementations are stubs that point at where the work lives. Production-ready modules will land iteratively.
+## SDK
 
-## Relationship to FreeAppStore SDK
-
-The free side lives at [freeappstore-online/sdk](https://github.com/freeappstore-online/sdk) and ships the **`fas` CLI + `@freeappstore/sdk`** with auth, per-user KV, and Durable-Object rooms — free forever.
-
-This repo is the **pro counterpart**: `pas` CLI + `@proappstore/sdk`, focused on what makes a paid app a paid app:
-
-- Stripe-backed subscriptions (open checkout, manage subscription portal, read status)
-- License-key minting + validation
-- Higher per-user / per-app quotas
-- Premium modules (TBD: real-time multiplayer with persistence, AI/LLM proxy, etc.)
-
-App developers import **both** when building a free+pro pair:
+```bash
+npm i @proappstore/sdk
+```
 
 ```ts
-import { initApp } from '@freeappstore/sdk';
-import { initPro } from '@proappstore/sdk';
+import { initPro } from '@proappstore/sdk'
 
-const fas = initApp({ appId: 'bandmates' });
-const pas = initPro({ appId: 'bandmates' });
+const app = initPro({ appId: 'my-app' })
 
-// Free: identity, per-user KV, light rooms
-await fas.auth.init();
-
-// Pro: subscription state on top of the free user
-const subscription = await pas.subscription.status();
-if (subscription?.tier !== 'pro') {
-  pas.subscription.openCheckout({ priceId: 'price_...' });
-}
+app.auth          // GitHub OAuth (shared identity with FreeAppStore)
+app.kv            // Per-user key-value storage
+app.counters      // Shared atomic counters
+app.rooms         // Real-time WebSocket rooms
+app.proxy         // Secret-injecting API proxy
+app.subscription  // Stripe subscriptions (pro)
+app.license       // License key validation (pro)
 ```
 
-## Layout
+One import. All free + pro features in one SDK instance.
 
+## Packages
+
+| Package | npm | Description |
+|---------|-----|-------------|
+| `packages/sdk` | `@proappstore/sdk` | Unified browser SDK |
+| `packages/cli` | `@proappstore/cli` | CLI for publishing pro apps |
+| `packages/backend` | private | CF Worker — Stripe webhooks, subscriptions, licenses |
+
+## Architecture
+
+- Backend: Cloudflare Workers + D1 (subscriptions, licenses)
+- Auth: Delegates to FAS (`api.freeappstore.online/v1/auth/me`) — shared identity
+- Payments: Stripe (checkout sessions, billing portal, webhook receiver)
+- Publishing: OIDC trusted publishing (no stored tokens)
+
+## Development
+
+```bash
+pnpm install
+pnpm build          # build all packages
+pnpm test           # run tests
 ```
-sdk/
-├── packages/
-│   ├── cli/        # `pas` binary
-│   ├── sdk/        # @proappstore/sdk
-│   └── backend/    # CF Worker — Stripe webhooks, entitlements, licenses
-├── docs/
-└── pnpm-workspace.yaml
-```
 
-## What's not in v0 skeleton
+## Deployment
 
-The structure compiles, exports the right types, and has CI green. But almost every method body is a TODO that throws or returns a typed stub. The next iteration wires:
-
-1. Stripe checkout + portal + webhook receiver
-2. D1 schema for `subscriptions` and `license_keys`
-3. Entitlement check that gates premium modules
-
-## Stack
-
-Same as the free side: TypeScript 5.7, Node 22, pnpm, Cloudflare Workers + D1 (+ Stripe).
+- Push to main → auto-deploy backend via GitHub Actions
+- SDK/CLI auto-publish to npm via OIDC on version bump
 
 ## License
 
-MIT. See [LICENSE](./LICENSE).
+MIT.
