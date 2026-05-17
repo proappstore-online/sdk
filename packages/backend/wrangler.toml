@@ -13,10 +13,9 @@ database_name = "pas"
 database_id = "585bbda3-0016-42ad-a53d-c089f1864fcb"
 migrations_dir = "../../migrations"
 
-# Custom domain — uncomment after CF_API_TOKEN has proappstore.online zone access
-# [[routes]]
-# pattern = "api.proappstore.online/*"
-# zone_name = "proappstore.online"
+[[routes]]
+pattern = "api.proappstore.online/*"
+zone_name = "proappstore.online"
 
 # Secrets (set via `wrangler secret put`):
 #   STRIPE_SECRET_KEY
