@@ -53,6 +53,19 @@ importers:
         specifier: ^5.7.0
         version: 5.9.3
 
+  packages/data-worker:
+    dependencies:
+      hono:
+        specifier: ^4.6.0
+        version: 4.12.16
+    devDependencies:
+      '@cloudflare/workers-types':
+        specifier: ^4.20250101.0
+        version: 4.20260505.1
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+
   packages/sdk:
     dependencies:
       '@freeappstore/sdk':
