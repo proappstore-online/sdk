@@ -7,6 +7,7 @@ workers_dev = true
 [vars]
 FAS_API_BASE = "https://api.freeappstore.online"
 CF_ACCOUNT_ID = "c1089bfcc43c1c6c2aa89e584e86f0bc"
+VAPID_PUBLIC_KEY = "BPg6E92QAOhdcif_HckOEGY6mL03VKWNQ3CS1xQX5q59fXURI1xCGwwBr4Vsv7gn3TXIGSJquJwvHGYRbMcAQc0"
 
 [[d1_databases]]
 binding = "DB"
@@ -27,3 +28,4 @@ zone_name = "proappstore.online"
 #   STRIPE_SECRET_KEY
 #   STRIPE_WEBHOOK_SECRET
 #   SESSION_SIGNING_KEY
+#   VAPID_PRIVATE_KEY     (for Web Push notifications)

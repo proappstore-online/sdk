@@ -1,6 +1,7 @@
 import { FreeAppStore } from '@freeappstore/sdk';
 import { Database } from './db.js';
 import { Maps } from './maps.js';
+import { Notifications } from './notifications.js';
 import { Storage } from './storage.js';
 import { SubscriptionApi } from './subscription.js';
 import { LicenseApi } from './license.js';
@@ -26,6 +27,7 @@ export type {
 } from './types.js';
 
 export type { QueryResult, ExecuteResult, Migration, MigrateResult } from './db.js';
+export type { NotificationPayload, SendResult } from './notifications.js';
 
 /**
  * Pro SDK instance — includes everything from @freeappstore/sdk (auth, kv,
@@ -39,6 +41,7 @@ export class ProAppStore extends FreeAppStore {
   readonly db: Database;
   readonly storage: Storage;
   readonly maps: Maps;
+  readonly notifications: Notifications;
 
   constructor(opts: ProInitOptions) {
     super({ appId: opts.appId, ...(opts.fasApiBase && { apiBase: opts.fasApiBase }) });
@@ -48,6 +51,7 @@ export class ProAppStore extends FreeAppStore {
     this.db = new Database(opts.appId, opts.dataApiBase ?? `https://data-${opts.appId}.proappstore.online`, this.auth);
     this.storage = new Storage(opts.appId, proApiBase, this.auth);
     this.maps = new Maps(proApiBase);
+    this.notifications = new Notifications(opts.appId, proApiBase, this.auth);
   }
 }
 

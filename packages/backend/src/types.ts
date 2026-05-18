@@ -10,6 +10,19 @@ export interface Env {
   /** CF credentials for provisioning (D1, Pages, Workers). */
   CF_API_TOKEN: string;
   CF_ACCOUNT_ID: string;
+  /** VAPID keys for Web Push notifications. */
+  VAPID_PUBLIC_KEY: string;
+  VAPID_PRIVATE_KEY: string;
+}
+
+export interface PushSubscriptionRow {
+  id: string;
+  user_id: string;
+  app_id: string;
+  endpoint: string;
+  p256dh: string;
+  auth_secret: string;
+  created_at: number;
 }
 
 export interface SubscriptionRow {

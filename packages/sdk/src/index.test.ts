@@ -14,6 +14,7 @@ describe('initPro', () => {
     // Pro modules
     expect(app.subscription).toBeDefined();
     expect(app.license).toBeDefined();
+    expect(app.notifications).toBeDefined();
   });
 
   it('uses default API bases when not specified', () => {

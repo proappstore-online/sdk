@@ -4,6 +4,7 @@ import type { Subscription } from './types.js';
 
 // Re-export User type for convenience
 export type { User } from '@freeappstore/sdk';
+export type { NotificationPayload, SendResult } from './notifications.js';
 
 /**
  * Auth state + actions. The primary way apps interact with platform identity.
@@ -80,6 +81,58 @@ export function useProSubscription(app: ProAppStore) {
   }, [app]);
 
   return { subscription, isPro, loading, upgrade, manageBilling };
+}
+
+/**
+ * Push notification state + actions.
+ *
+ * Usage:
+ * ```tsx
+ * const { permission, isSubscribed, subscribe, unsubscribe, loading } = useProNotifications(app)
+ * if (permission === 'denied') return null
+ * return (
+ *   <button onClick={isSubscribed ? unsubscribe : subscribe}>
+ *     {isSubscribed ? 'Enabled' : 'Enable notifications'}
+ *   </button>
+ * )
+ * ```
+ */
+export function useProNotifications(app: ProAppStore) {
+  const [permission, setPermission] = useState<NotificationPermission>(
+    app.notifications.getPermission(),
+  );
+  const [isSubscribed, setIsSubscribed] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    app.notifications.isSubscribed()
+      .then(setIsSubscribed)
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [app]);
+
+  const subscribe = useCallback(async () => {
+    setLoading(true);
+    try {
+      await app.notifications.subscribe();
+      setIsSubscribed(true);
+      setPermission(app.notifications.getPermission());
+    } finally {
+      setLoading(false);
+    }
+  }, [app]);
+
+  const unsubscribe = useCallback(async () => {
+    setLoading(true);
+    try {
+      await app.notifications.unsubscribe();
+      setIsSubscribed(false);
+    } finally {
+      setLoading(false);
+    }
+  }, [app]);
+
+  return { permission, isSubscribed, subscribe, unsubscribe, loading };
 }
 
 /**
