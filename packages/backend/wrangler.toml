@@ -6,6 +6,7 @@ workers_dev = true
 
 [vars]
 FAS_API_BASE = "https://api.freeappstore.online"
+CF_ACCOUNT_ID = "c1089bfcc43c1c6c2aa89e584e86f0bc"
 
 [[d1_databases]]
 binding = "DB"
@@ -20,9 +21,6 @@ bucket_name = "pas-storage"
 [[routes]]
 pattern = "api.proappstore.online/*"
 zone_name = "proappstore.online"
-
-[vars]
-CF_ACCOUNT_ID = "c1089bfcc43c1c6c2aa89e584e86f0bc"
 
 # Secrets (set via `wrangler secret put`):
 #   CF_API_TOKEN          (for provisioning D1/Pages/Workers)
