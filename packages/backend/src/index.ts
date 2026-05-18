@@ -3,6 +3,7 @@ import { cors } from 'hono/cors';
 import type { Env } from './types.js';
 import { subscriptionRoutes } from './routes/subscription.js';
 import { licenseRoutes } from './routes/license.js';
+import { storageRoutes } from './routes/storage.js';
 import { webhookRoutes } from './routes/webhook.js';
 
 export const app = new Hono<{ Bindings: Env }>();
@@ -36,6 +37,7 @@ app.get('/health', (c) => c.json({ ok: true }));
 const v1 = new Hono<{ Bindings: Env }>();
 v1.route('/', subscriptionRoutes);
 v1.route('/', licenseRoutes);
+v1.route('/', storageRoutes);
 app.route('/v1', v1);
 
 // Stripe webhook is outside /v1 — it's not user-facing API

@@ -1,5 +1,7 @@
 export interface Env {
   DB: D1Database;
+  /** Shared R2 bucket for file storage. Files keyed as {appId}/{userId}/{path}. */
+  STORAGE: R2Bucket;
   STRIPE_SECRET_KEY: string;
   STRIPE_WEBHOOK_SECRET: string;
   SESSION_SIGNING_KEY: string;
