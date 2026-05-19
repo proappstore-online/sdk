@@ -1,3 +1,5 @@
+import { TenantScope } from './tenant.js';
+
 interface AuthLike {
   token: string | null;
   handleUnauthorized(): void;
@@ -62,6 +64,20 @@ export class Database {
    */
   async migrate(migrations: Migration[]): Promise<MigrateResult> {
     return this.req<MigrateResult>('/migrate', { migrations });
+  }
+
+  /**
+   * Return a tenant-scoped wrapper. All `.find`, `.insert`, `.update`, `.delete`
+   * calls on the returned scope auto-inject `tenant_id` — the standard way to
+   * implement row-level isolation on a shared multi-tenant D1.
+   *
+   * @example
+   *   const tx = app.db.tenant(currentStudio.id);
+   *   await tx.insert('clients', { id, name });
+   *   const clients = await tx.findMany('clients');
+   */
+  tenant(tenantId: string): TenantScope {
+    return new TenantScope(this, tenantId);
   }
 
   /** List all user-created tables in the database. */

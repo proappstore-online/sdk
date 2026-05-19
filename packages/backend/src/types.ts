@@ -13,6 +13,17 @@ export interface Env {
   /** VAPID keys for Web Push notifications. */
   VAPID_PUBLIC_KEY: string;
   VAPID_PRIVATE_KEY: string;
+  /**
+   * Twilio credentials for SMS. Optional so the Worker boots without them;
+   * /sms/send returns 503 if unset. Provision via:
+   *   wrangler secret put TWILIO_ACCOUNT_SID
+   *   wrangler secret put TWILIO_AUTH_TOKEN
+   *   wrangler secret put TWILIO_FROM_NUMBER
+   */
+  TWILIO_ACCOUNT_SID?: string;
+  TWILIO_AUTH_TOKEN?: string;
+  /** Sender number in E.164 format, e.g. "+15551234567". */
+  TWILIO_FROM_NUMBER?: string;
 }
 
 export interface PushSubscriptionRow {
