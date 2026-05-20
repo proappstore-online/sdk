@@ -40,8 +40,11 @@ binding = "ADMIN"
 service = "freeappstore-admin"
 
 # Secrets (set via `wrangler secret put`):
-#   CF_API_TOKEN          (for provisioning D1/Pages/Workers)
+#   CF_API_TOKEN                    (for provisioning D1/Pages/Workers)
 #   STRIPE_SECRET_KEY
 #   STRIPE_WEBHOOK_SECRET
+#   STRIPE_PRO_MONTHLY_PRICE_ID     (the live Stripe price for $9/mo Pro;
+#                                    until set, GET /v1/pricing returns null
+#                                    and the Console hides the Upgrade button)
 #   SESSION_SIGNING_KEY
-#   VAPID_PRIVATE_KEY     (for Web Push notifications)
+#   VAPID_PRIVATE_KEY               (for Web Push notifications)

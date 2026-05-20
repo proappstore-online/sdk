@@ -4,6 +4,8 @@ export interface Env {
   STORAGE: R2Bucket;
   STRIPE_SECRET_KEY: string;
   STRIPE_WEBHOOK_SECRET: string;
+  /** Stripe price ID for the $9/mo platform subscription. Read by GET /v1/pricing. */
+  STRIPE_PRO_MONTHLY_PRICE_ID?: string;
   SESSION_SIGNING_KEY: string;
   /** FAS API for verifying auth tokens (user identity lives on free side). */
   FAS_API_BASE: string;

@@ -5,6 +5,25 @@ import { Stripe } from '../lib/stripe.js';
 
 export const subscriptionRoutes = new Hono<{ Bindings: Env }>();
 
+/**
+ * Public pricing surface — what's the current Pro subscription price and
+ * Stripe price ID. Read by the Console + Dashboard so the client never has
+ * to hard-code `priceId: "price_pro_monthly"` (which was a literal string
+ * masquerading as a real Stripe price ID and 400'd every checkout attempt).
+ *
+ * No auth — the prices are public. Returns nulls when `STRIPE_PRO_MONTHLY_PRICE_ID`
+ * isn't configured so the UI can degrade ("Upgrade unavailable — contact support")
+ * rather than render a fake-looking error.
+ */
+subscriptionRoutes.get('/pricing', (c) => {
+  const proPriceId = c.env.STRIPE_PRO_MONTHLY_PRICE_ID ?? null;
+  return c.json({
+    proMonthly: proPriceId
+      ? { priceId: proPriceId, currency: 'usd', dollars: 9 }
+      : null,
+  });
+});
+
 /** Get current user's subscription status. */
 subscriptionRoutes.get('/subscription', async (c) => {
   try {
