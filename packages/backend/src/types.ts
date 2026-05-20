@@ -50,6 +50,14 @@ export interface Env {
    * authenticated users see only their own submissions.
    */
   ADMIN_GITHUB_IDS?: string;
+  /**
+   * Optional GitHub token used by the server-side compliance check at
+   * /v1/provision (raises GitHub's unauth rate limit of 60/hr to 5000/hr).
+   * A fine-grained PAT with read-only "Contents" + "Metadata" permissions
+   * on the storefront orgs is enough — no write scopes needed.
+   *   wrangler secret put GITHUB_TOKEN
+   */
+  GITHUB_TOKEN?: string;
 }
 
 export interface PushSubscriptionRow {

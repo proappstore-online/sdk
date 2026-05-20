@@ -1,7 +1,9 @@
 import { Hono } from 'hono';
+import { runChecksFromFiles } from '@proappstore/compliance';
 import type { Env } from '../types.js';
 import { requireUser, HttpError } from '../lib/auth.js';
 import { deployDataWorker } from '../lib/deploy-worker.js';
+import { fetchRepoFiles, type RepoLocation } from '../lib/github-fetch.js';
 import { callAdminProvision, type ProvisionBody, type ProvisionStep } from '../lib/provision-client.js';
 
 /**
@@ -54,6 +56,66 @@ provisionRoutes.post('/provision', async (c) => {
 
     if (!cfToken || !cfAccount) {
       return c.text('Platform provisioning not configured (missing CF credentials)', 503);
+    }
+
+    // 0. Server-side compliance check against the repo at the target ref.
+    //    The only un-bypassable enforcement layer — a developer can disable
+    //    their CI, skip pre-commit, force-push to main — and `pas publish`
+    //    still won't ship non-compliant code through this gate.
+    //
+    //    Defaults to proappstore-online/<appId>@main, with overrides via
+    //    body.repoOwner / body.repoName / body.ref for third-party publisher
+    //    orgs (e.g. carsads-online/carsads). Bypassable only by setting
+    //    body.skipCompliance — intended for the first-bootstrap call from
+    //    `pas create` when the repo doesn't exist on GitHub yet, NOT for
+    //    routine publishes.
+    if (!body.skipCompliance) {
+      const loc: RepoLocation = {
+        owner: body.repoOwner || 'proappstore-online',
+        repo: body.repoName || appId,
+        ref: body.ref || 'main',
+      };
+      try {
+        const fetched = await fetchRepoFiles(loc, c.env.GITHUB_TOKEN);
+        const results = await runChecksFromFiles(fetched.files);
+        const hardFails = results.filter((r) => r.status === 'fail');
+        const warnings = results.filter((r) => r.status === 'warn');
+        if (hardFails.length > 0) {
+          const detail = hardFails.map((r) => `${r.name}: ${r.detail}`).join('; ');
+          steps.push({
+            name: 'compliance',
+            status: 'fail',
+            detail: `${hardFails.length} rule(s) failed at ${loc.owner}/${loc.repo}@${fetched.sha.slice(0, 7)} — ${detail}`,
+          });
+          return c.json(
+            { appId, steps, dataWorkerUrl: '', pagesUrl: '', success: false, hardFails, warnings },
+            412, // Precondition Failed
+          );
+        }
+        steps.push({
+          name: 'compliance',
+          status: 'ok',
+          detail: `${results.length - warnings.length} rules passed at ${loc.owner}/${loc.repo}@${fetched.sha.slice(0, 7)}${warnings.length ? ` (${warnings.length} warnings)` : ''}`,
+        });
+      } catch (e) {
+        // If we can't reach GitHub, fail closed — better than silently
+        // skipping the check on a network blip. The user can retry.
+        steps.push({
+          name: 'compliance',
+          status: 'fail',
+          detail: `Could not run compliance check: ${(e as Error).message}`,
+        });
+        return c.json(
+          { appId, steps, dataWorkerUrl: '', pagesUrl: '', success: false },
+          412,
+        );
+      }
+    } else {
+      steps.push({
+        name: 'compliance',
+        status: 'skip',
+        detail: 'skipCompliance=true (bootstrap only)',
+      });
     }
 
     // 1. Delegate cross-store steps to FAS admin via service binding.

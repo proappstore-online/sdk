@@ -29,6 +29,22 @@ export interface ProvisionBody {
   proFeatures?: string[];
   /** Skip the FAS-admin call (e.g. when the GitHub repo + CF Pages already exist). */
   skipPublish?: boolean;
+  /**
+   * Override the default repo location (`proappstore-online/<appId>`) for the
+   * server-side compliance check. Use for third-party publisher orgs whose
+   * source repo lives outside `proappstore-online` (e.g. `carsads-online`).
+   */
+  repoOwner?: string;
+  repoName?: string;
+  /** Ref/branch/SHA to check. Defaults to `main`. */
+  ref?: string;
+  /**
+   * Skip the server-side compliance check. Intended only for the bootstrap
+   * call from `pas create` (when the GitHub repo doesn't exist yet). Routine
+   * `pas publish` MUST leave this false — it's the only un-bypassable
+   * enforcement boundary the platform has.
+   */
+  skipCompliance?: boolean;
 }
 
 export type AdminProvisionResult =
