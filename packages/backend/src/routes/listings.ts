@@ -65,6 +65,9 @@ const HEX = /^#[0-9a-fA-F]{3,8}$/;
 const URL_LIKE = /^https?:\/\/.+/i;
 const EMAIL_LIKE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const HANDLE = /^[a-zA-Z0-9._-]{1,64}$/;
+// Bluesky handles look like "alice.bsky.social" or "alice.example.com" —
+// dot-separated DNS-ish identifier, conservative ASCII subset.
+const BLUESKY_HANDLE = /^[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?)+$/;
 
 const MAX_TAGLINE = 60;
 const MAX_LONG_DESC = 5000;
@@ -260,7 +263,13 @@ listingsRoutes.put('/apps/:id/listing', async (c) => {
     if ('socialTwitter' in body) patch.social_twitter = handleOrNull(body.socialTwitter);
     if ('socialGithub' in body) patch.social_github = handleOrNull(body.socialGithub);
     if ('socialMastodon' in body) patch.social_mastodon = urlOrNull(body.socialMastodon);
-    if ('socialBluesky' in body) patch.social_bluesky = clean(body.socialBluesky, 128, 'socialBluesky');
+    if ('socialBluesky' in body) {
+      const raw = clean(body.socialBluesky, 128, 'socialBluesky');
+      if (raw && !BLUESKY_HANDLE.test(raw.startsWith('@') ? raw.slice(1) : raw)) {
+        throw new HttpError('invalid Bluesky handle (use the dot-form, e.g. alice.bsky.social)', 400);
+      }
+      patch.social_bluesky = raw ? (raw.startsWith('@') ? raw.slice(1) : raw) : null;
+    }
     if ('privacyPolicyUrl' in body) patch.privacy_policy_url = urlOrNull(body.privacyPolicyUrl);
     if ('termsUrl' in body) patch.terms_url = urlOrNull(body.termsUrl);
     if ('screenshots' in body) {
