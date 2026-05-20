@@ -84,6 +84,22 @@ export interface LicenseRow {
   revoked: number;
 }
 
+/**
+ * Per-(app, user, day) usage rollup row. Mirrors the `usage_daily` table.
+ * The monthly payout cron sums these to compute each creator's share of
+ * the subscriber pool.
+ */
+export interface UsageRow {
+  app_id: string;
+  user_id: string;
+  /** YYYY-MM-DD in UTC. */
+  day: string;
+  session_seconds: number;
+  api_calls: number;
+  /** Epoch ms of the most recent ping. */
+  last_seen: number;
+}
+
 /** A pending / reviewed dev submission. Mirrors `submissions` table. */
 export interface SubmissionRow {
   id: string;
