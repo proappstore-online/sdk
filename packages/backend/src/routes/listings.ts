@@ -123,6 +123,40 @@ function emptyDto(appId: string): ListingDto {
   };
 }
 
+/**
+ * Public read for the storefront. No auth, no support email — that one's
+ * private to the owner. Anyone hitting proappstore.online/apps/:id gets
+ * this. Returns 404 only if the apps row doesn't exist; an apps row
+ * without a listings row still returns the empty DTO so the storefront
+ * can render a "this app hasn't filled in its listing yet" tile rather
+ * than 404ing the page.
+ */
+listingsRoutes.get('/storefront/apps/:id', async (c) => {
+  try {
+    const appId = c.req.param('id');
+    const appRow = await c.env.DB.prepare('SELECT id FROM apps WHERE id = ?')
+      .bind(appId)
+      .first<{ id: string }>();
+    if (!appRow) return c.text('not found', 404);
+
+    const row = await c.env.DB.prepare('SELECT * FROM app_listings WHERE app_id = ?')
+      .bind(appId)
+      .first<ListingRow>();
+    const dto = row ? rowToDto(row) : emptyDto(appId);
+    // Strip support_email from the public payload — it's owner-private,
+    // exposed through supportUrl instead.
+    const { supportEmail, ...publicDto } = dto;
+    void supportEmail;
+    // Short cache: lets edits propagate quickly while still absorbing
+    // bursts from popular apps.
+    c.header('Cache-Control', 'public, max-age=60');
+    return c.json(publicDto);
+  } catch (err) {
+    if (err instanceof HttpError) return c.text(err.message, err.status as 401);
+    throw err;
+  }
+});
+
 /** Owner read. */
 listingsRoutes.get('/apps/:id/listing', async (c) => {
   try {
