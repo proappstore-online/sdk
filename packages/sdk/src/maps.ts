@@ -20,6 +20,13 @@ export interface ReverseResult {
   address: Record<string, string>;
 }
 
+export interface RouteResult {
+  /** GeoJSON LineString — coordinates are [lng, lat] pairs (GeoJSON order). */
+  geometry: { type: 'LineString'; coordinates: [number, number][] };
+  distanceMeters: number;
+  durationSeconds: number;
+}
+
 export class Maps {
   constructor(private readonly apiBase: string) {}
 
@@ -34,6 +41,22 @@ export class Maps {
 
     const data = (await response.json()) as { results: GeoResult[] };
     return data.results;
+  }
+
+  /**
+   * Driving route between two points. Returns GeoJSON LineString geometry
+   * plus distance and duration. Backed by OSRM (OpenStreetMap), proxied
+   * through the platform — no API key needed.
+   */
+  async route(from: { lat: number; lng: number }, to: { lat: number; lng: number }): Promise<RouteResult> {
+    const url = new URL(`${this.apiBase}/v1/maps/route`);
+    url.searchParams.set('from', `${from.lat},${from.lng}`);
+    url.searchParams.set('to', `${to.lat},${to.lng}`);
+
+    const response = await fetch(url.toString());
+    if (!response.ok) throw new Error(`maps.route failed: ${response.status}`);
+
+    return (await response.json()) as RouteResult;
   }
 
   /** Convert coordinates to an address. */

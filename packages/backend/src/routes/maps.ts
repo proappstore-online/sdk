@@ -55,6 +55,62 @@ mapsRoutes.get('/maps/geocode', async (c) => {
   return c.json({ results });
 });
 
+/**
+ * Driving route between two points. Proxied to OSRM's public demo server
+ * (no API key needed). Returns GeoJSON LineString geometry plus distance
+ * and duration. Apps draw the geometry as the trip path on a map.
+ */
+mapsRoutes.get('/maps/route', async (c) => {
+  const from = c.req.query('from');
+  const to = c.req.query('to');
+  if (!from || !to) return c.json({ error: 'from and to required as "lat,lng"' }, 400);
+
+  const parseCoord = (s: string): [number, number] | null => {
+    const [latStr, lngStr] = s.split(',');
+    const lat = parseFloat(latStr ?? '');
+    const lng = parseFloat(lngStr ?? '');
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+    if (Math.abs(lat) > 90 || Math.abs(lng) > 180) return null;
+    return [lat, lng];
+  };
+  const fromCoord = parseCoord(from);
+  const toCoord = parseCoord(to);
+  if (!fromCoord || !toCoord) return c.json({ error: 'invalid coordinates' }, 400);
+
+  const [fromLat, fromLng] = fromCoord;
+  const [toLat, toLng] = toCoord;
+  const url = new URL(
+    `https://router.project-osrm.org/route/v1/driving/${fromLng},${fromLat};${toLng},${toLat}`,
+  );
+  url.searchParams.set('overview', 'full');
+  url.searchParams.set('geometries', 'geojson');
+
+  const response = await fetch(url.toString(), { headers: { 'User-Agent': USER_AGENT } });
+  if (!response.ok) {
+    return c.json({ error: `OSRM error: ${response.status}` }, 502);
+  }
+
+  const data = (await response.json()) as {
+    code: string;
+    routes?: Array<{
+      geometry: { type: 'LineString'; coordinates: [number, number][] };
+      distance: number;
+      duration: number;
+    }>;
+  };
+
+  if (data.code !== 'Ok' || !data.routes?.[0]) {
+    return c.json({ error: 'No route found' }, 404);
+  }
+
+  const route = data.routes[0];
+  return c.json({
+    geometry: route.geometry,
+    distanceMeters: route.distance,
+    durationSeconds: route.duration,
+  });
+});
+
 /** Reverse geocode: lat/lng -> address */
 mapsRoutes.get('/maps/reverse', async (c) => {
   const lat = c.req.query('lat');
