@@ -239,7 +239,13 @@ listingsRoutes.put('/apps/:id/listing', async (c) => {
   try {
     const appId = c.req.param('id');
     await requireAppOwner(c, appId);
-    const body = await c.req.json<ListingPatch>();
+    let body: ListingPatch;
+    try {
+      body = await c.req.json<ListingPatch>();
+    } catch {
+      return c.text('invalid JSON body', 400);
+    }
+    if (!body || typeof body !== 'object') return c.text('body must be a JSON object', 400);
 
     const patch: Partial<ListingRow> = {};
     if ('iconUrl' in body) patch.icon_url = urlOrNull(body.iconUrl);
