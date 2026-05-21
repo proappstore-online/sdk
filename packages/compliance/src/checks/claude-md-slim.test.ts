@@ -41,6 +41,16 @@ describe('checkClaudeMdSlim', () => {
     expect(r.status).toBe('pass');
   });
 
+  it('accepts the short proappstore.online/skills.md URL as the pointer', async () => {
+    const md = SLIM_CLAUDE_MD.replace(
+      'https://raw.githubusercontent.com/proappstore-online/proappstore/main/SKILLS.md',
+      'https://proappstore.online/skills.md',
+    );
+    await writeFile(join(dir, 'CLAUDE.md'), md);
+    const r = await checkClaudeMdSlim(fsFileSource(dir));
+    expect(r.status).toBe('pass');
+  });
+
   it('warns on legacy "## Tech Stack" boilerplate', async () => {
     await writeFile(
       join(dir, 'CLAUDE.md'),

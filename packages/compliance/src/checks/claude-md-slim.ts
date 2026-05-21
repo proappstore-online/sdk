@@ -20,6 +20,10 @@ const NAME = 'CLAUDE.md is slim (no platform boilerplate)';
 const SKILLS_URL =
   'https://raw.githubusercontent.com/proappstore-online/proappstore/main/SKILLS.md';
 
+// The natural shape devs link to. Served by proappstore.online and 301s to the
+// raw GitHub URL. Accepting both keeps the check from feeling like trivia.
+const SKILLS_URL_SHORT = 'https://proappstore.online/skills.md';
+
 // Section headers that should NOT appear in a per-repo CLAUDE.md — they
 // belong in SKILLS.md. Match leading-`##` headers, case-insensitive.
 const BOILERPLATE_HEADERS = [
@@ -66,7 +70,8 @@ export async function checkClaudeMdSlim(source: FileSource): Promise<CheckResult
   }
 
   const nonBlankLines = body.split('\n').filter((l) => l.trim().length > 0).length;
-  const hasSkillsUrl = body.includes(SKILLS_URL);
+  const hasSkillsUrl =
+    body.includes(SKILLS_URL) || body.toLowerCase().includes(SKILLS_URL_SHORT);
 
   const issues: string[] = [];
   if (offendingHeaders.length > 0) {
