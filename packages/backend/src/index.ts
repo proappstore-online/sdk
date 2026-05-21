@@ -11,11 +11,13 @@ import { notificationRoutes } from './routes/notifications.js';
 import { smsRoutes } from './routes/sms.js';
 import { aiRoutes } from './routes/ai.js';
 import { submissionRoutes } from './routes/submissions.js';
+import { analyticsRoutes } from './routes/analytics.js';
 import { appsRoutes } from './routes/apps.js';
 import { listingsRoutes } from './routes/listings.js';
 import { usageRoutes } from './routes/usage.js';
 import { connectRoutes } from './routes/connect.js';
 import { payoutsRoutes } from './routes/payouts.js';
+import { domainRoutes } from './routes/domains.js';
 
 export const app = new Hono<{ Bindings: Env }>();
 
@@ -56,10 +58,12 @@ v1.route('/', smsRoutes);
 v1.route('/', aiRoutes);
 v1.route('/', submissionRoutes);
 v1.route('/', appsRoutes);
+v1.route('/', analyticsRoutes);
 v1.route('/', listingsRoutes);
 v1.route('/', usageRoutes);
 v1.route('/', connectRoutes);
 v1.route('/', payoutsRoutes);
+v1.route('/', domainRoutes);
 app.route('/v1', v1);
 
 // Stripe webhook is outside /v1 — it's not user-facing API

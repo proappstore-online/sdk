@@ -58,6 +58,50 @@ export function toTitleCase(id: string): string {
     .join(' ');
 }
 
+/**
+ * Call one of the FAS admin Worker's /api/apps/:proj/domains endpoints via
+ * the ADMIN service binding. Used by /v1/apps/:appId/domains in the PAS
+ * backend to attach/check/remove BYO custom domains on a Pro app's CF Pages
+ * project. The admin Worker proxies to CF's /pages/projects/:proj/domains
+ * with the platform's CF_API_TOKEN — PAS never touches CF Pages directly.
+ *
+ * Returns CF's response body verbatim (parsed) plus the HTTP status. CF's
+ * shape on success is `{ success: true, result: { name, status, verification_data, ... } }`;
+ * on failure `{ success: false, errors: [{ code, message }] }`. The caller
+ * is responsible for shaping that into the PAS API response.
+ */
+export interface AdminDomainResponse {
+  status: number;
+  body: unknown;
+}
+
+export async function callAdminDomain(
+  admin: Fetcher,
+  proj: string,
+  init: {
+    domain?: string;
+    method: 'POST' | 'GET' | 'PATCH' | 'DELETE';
+    body?: unknown;
+  },
+): Promise<AdminDomainResponse> {
+  const path = init.domain
+    ? `/api/apps/${encodeURIComponent(proj)}/domains/${encodeURIComponent(init.domain)}`
+    : `/api/apps/${encodeURIComponent(proj)}/domains`;
+  const fetchInit: RequestInit = { method: init.method };
+  if (init.body !== undefined) {
+    fetchInit.headers = { 'Content-Type': 'application/json' };
+    fetchInit.body = JSON.stringify(init.body);
+  }
+  const res = await admin.fetch(`https://internal-admin${path}`, fetchInit);
+  let parsed: unknown;
+  try {
+    parsed = await res.json();
+  } catch {
+    parsed = { error: `non-JSON response from admin (${res.status})` };
+  }
+  return { status: res.status, body: parsed };
+}
+
 export async function callAdminProvision(
   admin: Fetcher,
   body: ProvisionBody & { appId: string },

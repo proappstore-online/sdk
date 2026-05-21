@@ -2,6 +2,7 @@
 import { Command } from 'commander';
 import { checkCommand } from './check.js';
 import { createApp } from './create.js';
+import { domainCommand } from './domain.js';
 import { publishApp } from './publish.js';
 
 const program = new Command();
@@ -48,6 +49,7 @@ program
   });
 
 program.addCommand(checkCommand);
+program.addCommand(domainCommand);
 
 program.parseAsync().catch((err: unknown) => {
   const msg = err instanceof Error ? err.message : String(err);
