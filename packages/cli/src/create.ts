@@ -68,6 +68,23 @@ const TEMPLATE_FILES: Record<string, string> = {
   }
 }`,
   'web/tsconfig.json': `{\n  "files": [],\n  "references": [\n    { "path": "./tsconfig.app.json" },\n    { "path": "./tsconfig.node.json" }\n  ]\n}`,
+  // Declares the PAS-specific `min_viewport_width` field on vite-plugin-pwa's
+  // ManifestOptions so vite.config.ts can set it without @ts-expect-error.
+  // tsconfig.node.json picks this up because it's in the include list.
+  'web/vite-plugin-pwa.d.ts': `import 'vite-plugin-pwa';
+
+declare module 'vite-plugin-pwa' {
+  interface ManifestOptions {
+    /**
+     * PAS-specific manifest extension. Narrowest viewport width (in CSS
+     * pixels) the app is designed to support. The platform compliance
+     * check grades mobile readiness against this; recommended values
+     * are 320 | 360 | 414 | 600 | 768 | 1024.
+     */
+    min_viewport_width?: number;
+  }
+}
+`,
   'web/tsconfig.app.json': `{
   "compilerOptions": {
     "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.app.tsbuildinfo",
@@ -102,7 +119,7 @@ const TEMPLATE_FILES: Record<string, string> = {
     "moduleDetection": "force",
     "noEmit": true
   },
-  "include": ["vite.config.ts"]
+  "include": ["vite.config.ts", "vite-plugin-pwa.d.ts"]
 }`,
   'web/vite.config.ts': `import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
@@ -148,6 +165,10 @@ export default defineConfig({
         background_color: '#ffffff',
         theme_color: '#7c3aed',
         orientation: 'any',
+        // PAS-specific manifest extension — declares the narrowest viewport
+        // the app supports. The compliance check uses this to grade mobile
+        // readiness. Augmented into ManifestOptions in src/vite-plugin-pwa.d.ts.
+        min_viewport_width: 360,
         icons: [
           { src: '/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any maskable' },
           { src: '/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any maskable' },
