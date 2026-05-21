@@ -220,11 +220,16 @@ analyticsRoutes.get(
       STATS_DAYS_MAX,
       Math.max(1, Number(c.req.query('days') ?? STATS_DAYS_DEFAULT) | 0),
     );
-    const sinceClause = `timestamp > NOW() - INTERVAL '${days}' DAY`;
+    // Effective event time: prefer client-recorded `t` stored in doubles[1]
+    // (set for offline-replayed events), fall back to server-write timestamp
+    // for older rows that pre-date the second double.
+    const effectiveTime =
+      `if(length(doubles) > 1, fromUnixTimestamp64Milli(toInt64(double2)), timestamp)`;
+    const sinceClause = `${effectiveTime} > NOW() - INTERVAL '${days}' DAY`;
     const where = `WHERE index1 = '${appId}' AND blob2 = 'pageview' AND ${sinceClause}`;
 
     const totalsQ = `SELECT SUM(_sample_interval) AS views, COUNT(DISTINCT blob3) AS uniq_paths FROM ${STATS_DATASET} ${where}`;
-    const dailyQ = `SELECT toStartOfDay(timestamp) AS day, SUM(_sample_interval) AS views FROM ${STATS_DATASET} ${where} GROUP BY day ORDER BY day ASC`;
+    const dailyQ = `SELECT toStartOfDay(${effectiveTime}) AS day, SUM(_sample_interval) AS views FROM ${STATS_DATASET} ${where} GROUP BY day ORDER BY day ASC`;
     const pathsQ = `SELECT blob3 AS path, SUM(_sample_interval) AS views FROM ${STATS_DATASET} ${where} GROUP BY path ORDER BY views DESC LIMIT 10`;
     const refsQ = `SELECT blob4 AS referrer, SUM(_sample_interval) AS views FROM ${STATS_DATASET} ${where} AND blob4 != '' GROUP BY referrer ORDER BY views DESC LIMIT 10`;
     const ctyQ = `SELECT blob5 AS country, SUM(_sample_interval) AS views FROM ${STATS_DATASET} ${where} AND blob5 != '' GROUP BY country ORDER BY views DESC LIMIT 10`;
@@ -274,6 +279,22 @@ interface EventBody {
   path?: string;
   referrer?: string;
   props?: Record<string, unknown>;
+  /** Client-recorded event time (epoch ms). Lets offline-replayed events
+   *  land on the day they actually happened, not the flush day. */
+  t?: number;
+  /** Batch wrapper: each entry is treated as a single EventBody (with `t`).
+   *  Used by the loader to drain its IndexedDB outbox in one POST. */
+  events?: EventBody[];
+}
+
+const MAX_BATCH = 100;
+const T_WINDOW_MS = 72 * 60 * 60 * 1000; // accept replays up to 72h old
+
+function effectiveTimestamp(t: number | undefined, nowMs: number): number {
+  if (typeof t !== 'number' || !Number.isFinite(t)) return nowMs;
+  if (t > nowMs + 5 * 60 * 1000) return nowMs;
+  if (t < nowMs - T_WINDOW_MS) return nowMs;
+  return t;
 }
 
 function classifyUA(ua: string | null): 'bot' | 'mobile' | 'desktop' {
@@ -328,35 +349,42 @@ analyticsRoutes.post('/analytics/event', async (c) => {
   } catch {
     return c.text('invalid json', 400);
   }
-  const appId = (body.app ?? '').trim();
-  if (!APP_ID_RE.test(appId)) return c.text('invalid app', 400);
-
-  const kind = (body.kind ?? 'pageview').trim().toLowerCase();
-  if (!EVENT_KIND_RE.test(kind)) return c.text('invalid kind', 400);
 
   const ua = c.req.header('user-agent') ?? null;
   const uaClass = classifyUA(ua);
-  // Drop bots before writing — saves AE writes on traffic creators don't care about.
   if (uaClass === 'bot') return new Response(null, { status: 204 });
 
   const ip = c.req.header('cf-connecting-ip') ?? '';
-  if (!shouldAccept(`${appId}:${ip}:${kind}`, Date.now())) {
-    return new Response(null, { status: 204 });
-  }
-
-  const path = (body.path ?? '/').slice(0, PATH_MAX);
-  const referrerHost = safeReferrerHost(body.referrer);
   const country =
     (c.req.raw as Request & { cf?: { country?: string } }).cf?.country?.slice(0, 2) ?? '';
-
   const dataset = (c.env as Env & { ANALYTICS?: AnalyticsEngineDataset }).ANALYTICS;
-  if (!dataset) return new Response(null, { status: 204 });
-  dataset.writeDataPoint({
-    indexes: [appId],
-    blobs: [appId, kind, path, referrerHost, country, uaClass, flattenProps(body.props)],
-    doubles: [1],
-  });
-  return new Response(null, { status: 204 });
+
+  // Body can be a single event or { events: [...] } — the loader drains its
+  // IndexedDB outbox by POSTing the batched form when it reconnects.
+  const items: EventBody[] = Array.isArray(body.events) ? body.events.slice(0, MAX_BATCH) : [body];
+  const nowMs = Date.now();
+  let accepted = 0;
+  for (const item of items) {
+    const appId = (item.app ?? '').trim();
+    if (!APP_ID_RE.test(appId)) continue;
+    const kind = (item.kind ?? 'pageview').trim().toLowerCase();
+    if (!EVENT_KIND_RE.test(kind)) continue;
+    if (!shouldAccept(`${appId}:${ip}:${kind}`, nowMs)) continue;
+    if (!dataset) {
+      accepted++;
+      continue;
+    }
+    const path = (item.path ?? '/').slice(0, PATH_MAX);
+    const referrerHost = safeReferrerHost(item.referrer);
+    const t = effectiveTimestamp(item.t, nowMs);
+    dataset.writeDataPoint({
+      indexes: [appId],
+      blobs: [appId, kind, path, referrerHost, country, uaClass, flattenProps(item.props)],
+      doubles: [1, t],
+    });
+    accepted++;
+  }
+  return new Response(null, { status: 204, headers: { 'x-events-accepted': String(accepted) } });
 });
 
 // -----------------------------------------------------------------------------
@@ -390,19 +418,75 @@ export function buildLoaderJs(
   if (row?.custom_head && row.custom_head.length <= CUSTOM_HEAD_MAX) {
     parts.push(`_pasAnalytics.raw(${JSON.stringify(row.custom_head)});`);
   }
-  // First-party page-view + custom event beacon. Always emits, even without
-  // configured BYO tags — powers the in-platform creator dashboard.
+  // First-party event pipeline with IndexedDB offline buffer + drain-on-reconnect.
+  // Each event carries client-recorded timestamp so replayed events land on
+  // the right day in the dashboard.
   const beaconBase = JSON.stringify(apiBase);
   const idLit = JSON.stringify(appId);
   parts.push(`(function(){
+    var URL = ${beaconBase}+"/v1/analytics/event";
+    var APP = ${idLit};
+    var DB_NAME = "pasA", STORE = "outbox", MAX_BUFFER = 200;
+    function openDB(){
+      return new Promise(function(res, rej){
+        try{
+          var r = indexedDB.open(DB_NAME, 1);
+          r.onupgradeneeded = function(e){ e.target.result.createObjectStore(STORE,{keyPath:"id",autoIncrement:true}); };
+          r.onsuccess = function(){ res(r.result); };
+          r.onerror = function(){ rej(); };
+        }catch(e){ rej(); }
+      });
+    }
+    function buffer(evt){
+      openDB().then(function(db){
+        try{
+          var tx = db.transaction(STORE, "readwrite");
+          var s = tx.objectStore(STORE);
+          var c = s.count();
+          c.onsuccess = function(){ if (c.result < MAX_BUFFER) s.add(evt); };
+        }catch(e){}
+      }).catch(function(){});
+    }
+    function postBatch(events){
+      if (!events.length) return Promise.resolve(true);
+      var body = JSON.stringify({events: events});
+      if (navigator.sendBeacon && navigator.sendBeacon(URL, body)) return Promise.resolve(true);
+      return fetch(URL,{method:"POST",headers:{"Content-Type":"application/json"},body:body,keepalive:true})
+        .then(function(r){ return r.ok; }).catch(function(){ return false; });
+    }
+    function drain(){
+      openDB().then(function(db){
+        try{
+          var tx = db.transaction(STORE, "readwrite");
+          var s = tx.objectStore(STORE);
+          var req = s.getAll();
+          req.onsuccess = function(){
+            var rows = req.result || [];
+            if (!rows.length) return;
+            postBatch(rows.map(function(r){ return r.evt; })).then(function(ok){
+              if (!ok) return;
+              var tx2 = db.transaction(STORE, "readwrite");
+              tx2.objectStore(STORE).clear();
+            });
+          };
+        }catch(e){}
+      }).catch(function(){});
+    }
     function send(kind, props){
-      try {
-        var body = JSON.stringify({app:${idLit},kind:kind,path:location.pathname,referrer:document.referrer,props:props||null});
-        if (navigator.sendBeacon) navigator.sendBeacon(${beaconBase}+"/v1/analytics/event", body);
-        else fetch(${beaconBase}+"/v1/analytics/event",{method:"POST",headers:{"Content-Type":"application/json"},body:body,keepalive:true}).catch(function(){});
-      } catch(e){}
+      var evt = {app:APP,kind:kind,path:location.pathname,referrer:document.referrer,props:props||null,t:Date.now()};
+      if (navigator.onLine === false) { buffer(evt); return; }
+      try{
+        var body = JSON.stringify(evt);
+        var ok = navigator.sendBeacon ? navigator.sendBeacon(URL, body) : false;
+        if (!ok) {
+          fetch(URL,{method:"POST",headers:{"Content-Type":"application/json"},body:body,keepalive:true})
+            .catch(function(){ buffer(evt); });
+        }
+      }catch(e){ buffer(evt); }
     }
     send("pageview");
+    drain();
+    window.addEventListener("online", drain);
     window.pasAnalytics = window.pasAnalytics || {};
     window.pasAnalytics.event = function(kind, props){ send(String(kind||"event"), props); };
     var _push = history.pushState, _replace = history.replaceState;
