@@ -178,7 +178,10 @@ const STATS_DATASET = 'pas_app_analytics';
 interface StatsRow {
   total_views: number;
   unique_paths: number;
-  daily: Array<{ day: string; views: number }>;
+  /** Time series — entries are `{t, views}` where `t` is a YYYY-MM-DD
+   *  for bucket=day, YYYY-MM-DD HH:00:00 for bucket=hour. The envelope's
+   *  `bucket` field tells you which to expect. */
+  series: Array<{ t: string; views: number }>;
   top_paths: Array<{ path: string; views: number }>;
   top_referrers: Array<{ referrer: string; views: number }>;
   top_countries: Array<{ country: string; views: number }>;
@@ -221,11 +224,20 @@ analyticsRoutes.get(
       Math.max(1, Number(c.req.query('days') ?? STATS_DAYS_DEFAULT) | 0),
     );
     // `?kind=` lets the same dashboard machinery render any event kind,
-    // not just pageview. Defaults to 'pageview' so existing consumers
-    // keep working. Validated against EVENT_KIND_RE so the value can be
-    // safely embedded in the SQL WHERE clause.
+    // not just pageview. Validated against EVENT_KIND_RE so the value
+    // can be safely embedded in the SQL WHERE clause.
     const kindParam = (c.req.query('kind') ?? 'pageview').trim().toLowerCase();
     if (!EVENT_KIND_RE.test(kindParam)) throw new HttpError('invalid kind', 400);
+    // `?bucket=hour|day` controls series granularity. Auto-picks 'hour' when
+    // days==1 (24-point chart for spike investigation), 'day' otherwise.
+    const bucketParam = (c.req.query('bucket') ?? '').trim().toLowerCase();
+    const bucket: 'hour' | 'day' =
+      bucketParam === 'hour' || bucketParam === 'day'
+        ? bucketParam
+        : days <= 1
+          ? 'hour'
+          : 'day';
+    const seriesGroup = bucket === 'hour' ? 'toStartOfHour' : 'toStartOfDay';
     // Effective event time: prefer client-recorded `t` stored in doubles[1]
     // (set for offline-replayed events), fall back to server-write timestamp
     // for older rows that pre-date the second double.
@@ -235,7 +247,7 @@ analyticsRoutes.get(
     const where = `WHERE index1 = '${appId}' AND blob2 = '${kindParam}' AND ${sinceClause}`;
 
     const totalsQ = `SELECT SUM(_sample_interval) AS views, COUNT(DISTINCT blob3) AS uniq_paths FROM ${STATS_DATASET} ${where}`;
-    const dailyQ = `SELECT toStartOfDay(${effectiveTime}) AS day, SUM(_sample_interval) AS views FROM ${STATS_DATASET} ${where} GROUP BY day ORDER BY day ASC`;
+    const seriesQ = `SELECT ${seriesGroup}(${effectiveTime}) AS t, SUM(_sample_interval) AS views FROM ${STATS_DATASET} ${where} GROUP BY t ORDER BY t ASC`;
     const pathsQ = `SELECT blob3 AS path, SUM(_sample_interval) AS views FROM ${STATS_DATASET} ${where} GROUP BY path ORDER BY views DESC LIMIT 10`;
     const refsQ = `SELECT blob4 AS referrer, SUM(_sample_interval) AS views FROM ${STATS_DATASET} ${where} AND blob4 != '' GROUP BY referrer ORDER BY views DESC LIMIT 10`;
     const ctyQ = `SELECT blob5 AS country, SUM(_sample_interval) AS views FROM ${STATS_DATASET} ${where} AND blob5 != '' GROUP BY country ORDER BY views DESC LIMIT 10`;
@@ -243,9 +255,9 @@ analyticsRoutes.get(
 
     const env = c.env as Env & { CF_ACCOUNT_ID?: string; CF_ANALYTICS_API_TOKEN?: string };
     try {
-      const [totals, daily, paths, refs, ctys, devs] = await Promise.all([
+      const [totals, series, paths, refs, ctys, devs] = await Promise.all([
         cfAnalyticsSql<{ views: number; uniq_paths: number }>(env, totalsQ),
-        cfAnalyticsSql<{ day: string; views: number }>(env, dailyQ),
+        cfAnalyticsSql<{ t: string; views: number }>(env, seriesQ),
         cfAnalyticsSql<{ path: string; views: number }>(env, pathsQ),
         cfAnalyticsSql<{ referrer: string; views: number }>(env, refsQ),
         cfAnalyticsSql<{ country: string; views: number }>(env, ctyQ),
@@ -254,13 +266,13 @@ analyticsRoutes.get(
       const body: StatsRow = {
         total_views: Number(totals[0]?.views ?? 0),
         unique_paths: Number(totals[0]?.uniq_paths ?? 0),
-        daily: daily.map((r) => ({ day: r.day, views: Number(r.views) })),
+        series: series.map((r) => ({ t: r.t, views: Number(r.views) })),
         top_paths: paths.map((r) => ({ path: r.path, views: Number(r.views) })),
         top_referrers: refs.map((r) => ({ referrer: r.referrer, views: Number(r.views) })),
         top_countries: ctys.map((r) => ({ country: r.country, views: Number(r.views) })),
         device_split: devs.map((r) => ({ device: r.device, views: Number(r.views) })),
       };
-      return c.json({ appId, days, kind: kindParam, stats: body });
+      return c.json({ appId, days, kind: kindParam, bucket, stats: body });
     } catch (err) {
       if (err instanceof HttpError) throw err;
       throw new HttpError(err instanceof Error ? err.message : 'stats query failed', 502);
@@ -297,6 +309,45 @@ analyticsRoutes.get(
     } catch (err) {
       if (err instanceof HttpError) throw err;
       throw new HttpError(err instanceof Error ? err.message : 'events query failed', 502);
+    }
+  }),
+);
+
+// -----------------------------------------------------------------------------
+// Live view: visitors active in the last 5 minutes. Cheap query, dashboard
+// polls it every 30s for a "X right now" counter.
+// -----------------------------------------------------------------------------
+
+analyticsRoutes.get(
+  '/apps/:appId/analytics/live',
+  wrap(async (c) => {
+    const appId = c.req.param('appId')!;
+    await requireAppOwner(c, appId);
+    // Use server-write timestamp (not the effectiveTime two-stage expression)
+    // — offline-replayed events legitimately *are* recent network arrivals
+    // even if their client-side `t` is older. "Live" means "edge right now."
+    const since = `timestamp > NOW() - INTERVAL '5' MINUTE`;
+    const where = `WHERE index1 = '${appId}' AND blob2 = 'pageview' AND ${since}`;
+
+    const totalsQ = `SELECT SUM(_sample_interval) AS views, COUNT(DISTINCT blob3) AS uniq_paths FROM ${STATS_DATASET} ${where}`;
+    const pathsQ = `SELECT blob3 AS path, SUM(_sample_interval) AS views FROM ${STATS_DATASET} ${where} GROUP BY path ORDER BY views DESC LIMIT 5`;
+
+    const env = c.env as Env & { CF_ACCOUNT_ID?: string; CF_ANALYTICS_API_TOKEN?: string };
+    try {
+      const [totals, paths] = await Promise.all([
+        cfAnalyticsSql<{ views: number; uniq_paths: number }>(env, totalsQ),
+        cfAnalyticsSql<{ path: string; views: number }>(env, pathsQ),
+      ]);
+      return c.json({
+        appId,
+        window_minutes: 5,
+        views: Number(totals[0]?.views ?? 0),
+        unique_paths: Number(totals[0]?.uniq_paths ?? 0),
+        top_paths: paths.map((r) => ({ path: r.path, views: Number(r.views) })),
+      });
+    } catch (err) {
+      if (err instanceof HttpError) throw err;
+      throw new HttpError(err instanceof Error ? err.message : 'live query failed', 502);
     }
   }),
 );
