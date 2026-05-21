@@ -227,11 +227,11 @@ domainRoutes.post(
   '/apps/:appId/domains/:domain/verify',
   wrap(async (c) => {
     const appId = c.req.param('appId')!;
-    // Defensive: validate the URL param before touching CF. A garbage value
-    // (e.g. someone hand-crafting a request) would otherwise burn an admin →
-    // CF round trip before being rejected.
-    const domain = validateDomain(c.req.param('domain')!);
+    // Auth check fires first so that an unauthenticated caller gets a
+    // consistent 401 regardless of the input shape. Validating the URL
+    // param before auth would leak "not a domain" → 400 to anyone.
     await requireAppOwner(c, appId);
+    const domain = validateDomain(c.req.param('domain')!);
     if (!c.env.ADMIN) throw new HttpError('admin binding not configured', 503);
 
     // PATCH on /pages/projects/:proj/domains/:name triggers re-verification
@@ -290,8 +290,9 @@ domainRoutes.delete(
   '/apps/:appId/domains/:domain',
   wrap(async (c) => {
     const appId = c.req.param('appId')!;
-    const domain = validateDomain(c.req.param('domain')!);
+    // Auth first — see /verify route for rationale.
     await requireAppOwner(c, appId);
+    const domain = validateDomain(c.req.param('domain')!);
     if (!c.env.ADMIN) throw new HttpError('admin binding not configured', 503);
     const cf = await callAdminDomain(c.env.ADMIN, projectName(appId), {
       method: 'DELETE',
