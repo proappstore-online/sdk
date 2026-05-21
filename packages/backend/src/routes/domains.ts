@@ -83,10 +83,15 @@ function projectName(appId: string): string {
   return `proappstore-${appId}`;
 }
 
-// Map a CF /domains response (POST or GET) into our row shape + DTO. CF
-// returns verification_status one of:
-//   'active' | 'pending' | 'deactivated' | 'blocked' | 'error'
-// We collapse to: 'active' | 'pending' | 'failed'.
+// CF Pages' Domain object top-level field is `status`, one of:
+//   'initializing' | 'pending' | 'active' | 'deactivated' | 'blocked' | 'error'
+// We collapse that to our coarser 'pending' | 'active' | 'failed'. (Older
+// `verification_status` is checked as a fallback in case a non-standard CF
+// proxy or future API revision uses that name.)
+function readCfStatus(result: any): string | null {
+  return result?.status ?? result?.verification_status ?? null;
+}
+
 function deriveStatus(cfStatus: string | null | undefined): 'pending' | 'active' | 'failed' {
   if (cfStatus === 'active') return 'active';
   if (cfStatus === 'pending' || cfStatus === 'initializing' || !cfStatus) return 'pending';
@@ -164,7 +169,7 @@ domainRoutes.post(
       throw new HttpError(error || `CF returned ${cf.status}`, cf.status >= 400 && cf.status < 500 ? cf.status : 502);
     }
 
-    const cfStatus = result?.verification_status ?? null;
+    const cfStatus = readCfStatus(result);
     const status = deriveStatus(cfStatus);
     const now = Date.now();
     await c.env.DB.prepare(
@@ -218,20 +223,17 @@ domainRoutes.post(
     await requireAppOwner(c, appId);
     if (!c.env.ADMIN) throw new HttpError('admin binding not configured', 503);
 
-    // Tell CF to re-verify (PATCH), then read the latest status (GET). PATCH
-    // is the trigger; CF returns the verification result on the next GET.
-    await callAdminDomain(c.env.ADMIN, projectName(appId), {
-      method: 'PATCH',
-      domain,
-    });
+    // PATCH on /pages/projects/:proj/domains/:name triggers re-verification
+    // and returns the latest Domain object in the same response. No follow-up
+    // GET needed.
     const cf = await callAdminDomain(c.env.ADMIN, projectName(appId), {
-      method: 'GET',
+      method: 'PATCH',
       domain,
     });
     const { ok, result, error } = extractCfResult(cf.body);
     if (!ok) throw new HttpError(error || `CF returned ${cf.status}`, cf.status >= 400 && cf.status < 500 ? cf.status : 502);
 
-    const cfStatus = result?.verification_status ?? null;
+    const cfStatus = readCfStatus(result);
     const status = deriveStatus(cfStatus);
     const now = Date.now();
     const updated = await c.env.DB.prepare(
@@ -285,10 +287,9 @@ export async function sweepPendingDomains(env: Env): Promise<{
   for (const item of items) {
     summary.checked++;
     try {
-      await callAdminDomain(env.ADMIN, projectName(item.app_id), { method: 'PATCH', domain: item.domain });
-      const cf = await callAdminDomain(env.ADMIN, projectName(item.app_id), { method: 'GET', domain: item.domain });
+      const cf = await callAdminDomain(env.ADMIN, projectName(item.app_id), { method: 'PATCH', domain: item.domain });
       const { ok, result } = extractCfResult(cf.body);
-      const cfStatus = ok ? (result?.verification_status ?? null) : null;
+      const cfStatus = ok ? readCfStatus(result) : null;
       const status = deriveStatus(cfStatus);
       const now = Date.now();
       await env.DB.prepare(

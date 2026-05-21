@@ -88,7 +88,10 @@ describe('POST /v1/apps/:appId/domains', () => {
         domain: 'meetup.example.com',
         status: 'pending',
         cf_status: 'pending',
-        cf_payload: JSON.stringify({ verification_data: { txt_name: '_cf-pages.meetup.example.com', txt_value: 'abc' } }),
+        cf_payload: JSON.stringify({
+          verification_data: { status: 'pending' },
+          validation_data: { method: 'txt', status: 'pending', txt_name: '_acme.meetup.example.com', txt_value: 'abc' },
+        }),
         added_at: 1000,
         verified_at: null,
       },
@@ -102,8 +105,9 @@ describe('POST /v1/apps/:appId/domains', () => {
           success: true,
           result: {
             name: 'meetup.example.com',
-            verification_status: 'pending',
-            verification_data: { txt_name: '_cf-pages.meetup.example.com', txt_value: 'abc' },
+            status: 'pending',
+            verification_data: { status: 'pending' },
+            validation_data: { method: 'txt', status: 'pending', txt_name: '_acme.meetup.example.com', txt_value: 'abc' },
           },
         },
       },
@@ -120,13 +124,12 @@ describe('POST /v1/apps/:appId/domains', () => {
     );
 
     expect(res.status).toBe(201);
-    const body = (await res.json()) as { domain: { domain: string; status: string; verificationData: unknown } };
+    const body = (await res.json()) as {
+      domain: { domain: string; status: string; verificationData: unknown; validationData: any };
+    };
     expect(body.domain.domain).toBe('meetup.example.com');
     expect(body.domain.status).toBe('pending');
-    expect(body.domain.verificationData).toEqual({
-      txt_name: '_cf-pages.meetup.example.com',
-      txt_value: 'abc',
-    });
+    expect(body.domain.validationData?.txt_name).toBe('_acme.meetup.example.com');
     // Admin was called with the project-named path.
     expect(admin.calls[0]?.path).toBe('/api/apps/proappstore-meetup/domains');
     expect(admin.calls[0]?.method).toBe('POST');
@@ -280,8 +283,8 @@ describe('POST /v1/apps/:appId/domains/:domain/verify', () => {
     });
     const db = mockD1(ownerCheck, update, readBack);
     const admin = mockAdmin([
-      { status: 200, body: { success: true, result: { name: 'meetup.example.com', verification_status: 'pending' } } }, // PATCH
-      { status: 200, body: { success: true, result: { name: 'meetup.example.com', verification_status: 'active' } } }, // GET
+      // PATCH returns the latest Domain object — no follow-up GET needed.
+      { status: 200, body: { success: true, result: { name: 'meetup.example.com', status: 'active' } } },
     ]);
     const res = await app.request(
       '/v1/apps/meetup/domains/meetup.example.com/verify',
@@ -291,7 +294,38 @@ describe('POST /v1/apps/:appId/domains/:domain/verify', () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { domain: { status: string } };
     expect(body.domain.status).toBe('active');
-    expect(admin.calls.map((c) => c.method)).toEqual(['PATCH', 'GET']);
+    expect(admin.calls.map((c) => c.method)).toEqual(['PATCH']);
+  });
+
+  // Regression for the field-name bug: CF Pages returns `status`, not
+  // `verification_status`. Earlier code read the wrong field, so domains
+  // never flipped from pending → active.
+  it('reads CF Domain.status (not verification_status)', async () => {
+    const ownerCheck = mockStmt({ first: { creator_id: 'gh:1' } });
+    const update = mockStmt({ run: { meta: { changes: 1 } } });
+    const readBack = mockStmt({
+      first: {
+        app_id: 'meetup',
+        domain: 'meetup.example.com',
+        status: 'active',
+        cf_status: 'active',
+        cf_payload: '{}',
+        added_at: 1000,
+        verified_at: 5000,
+      },
+    });
+    const db = mockD1(ownerCheck, update, readBack);
+    const admin = mockAdmin([
+      { status: 200, body: { success: true, result: { status: 'active' } } },
+    ]);
+    const res = await app.request(
+      '/v1/apps/meetup/domains/meetup.example.com/verify',
+      { method: 'POST', headers: { Authorization: 'Bearer t' } },
+      makeEnv({ db, admin: admin.fetcher }),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { domain: { status: string } };
+    expect(body.domain.status).toBe('active');
   });
 });
 
@@ -303,8 +337,8 @@ describe('sweepPendingDomains (cron)', () => {
     const update = mockStmt({ run: { meta: { changes: 1 } } });
     const db = mockD1(list, update);
     const admin = mockAdmin([
-      { status: 200, body: { success: true, result: { verification_status: 'pending' } } }, // PATCH
-      { status: 200, body: { success: true, result: { verification_status: 'active' } } }, // GET
+      // PATCH returns the latest Domain object directly.
+      { status: 200, body: { success: true, result: { status: 'active' } } },
     ]);
     const summary = await sweepPendingDomains({
       DB: db as unknown as D1Database,
@@ -327,9 +361,8 @@ describe('sweepPendingDomains (cron)', () => {
     const admin = {
       fetch: vi
         .fn()
-        // First domain: PATCH then GET both succeed.
-        .mockResolvedValueOnce(new Response(JSON.stringify({ success: true, result: { verification_status: 'pending' } }), { status: 200 }))
-        .mockResolvedValueOnce(new Response(JSON.stringify({ success: true, result: { verification_status: 'pending' } }), { status: 200 }))
+        // First domain: PATCH succeeds (and that's the only call we make).
+        .mockResolvedValueOnce(new Response(JSON.stringify({ success: true, result: { status: 'pending' } }), { status: 200 }))
         // Second domain: PATCH throws.
         .mockRejectedValueOnce(new Error('CF unreachable')),
     };

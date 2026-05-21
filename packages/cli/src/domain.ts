@@ -12,16 +12,23 @@ const red = ansi('31');
 const dim = (s: string) => (isTTY ? `\x1b[2m${s}\x1b[22m` : s);
 const bold = (s: string) => (isTTY ? `\x1b[1m${s}\x1b[22m` : s);
 
+// CF Pages Domain object shape:
+//   verification_data: { error_message?: string; status?: string }
+//   validation_data:   { error_message?: string; method?: 'http'|'txt'; status?: string;
+//                        txt_name?: string; txt_value?: string }
+// The TXT records owners actually need to add only appear in validation_data
+// when method is 'txt' (CF defaults to HTTP-01, falls back to TXT only if
+// HTTP-01 isn't possible).
 interface VerificationData {
   status?: string;
-  txt_name?: string;
-  txt_value?: string;
+  error_message?: string;
 }
 interface ValidationData {
   status?: string;
   method?: string;
   txt_name?: string;
   txt_value?: string;
+  error_message?: string;
 }
 
 interface DomainDto {
@@ -114,26 +121,28 @@ function renderDomain(d: DomainDto, appId: string): void {
 
   const vd = d.verificationData || {};
   const valid = d.validationData || {};
-  const isApex = !d.domain.includes('.') || d.domain.split('.').length === 2;
-  process.stdout.write(`\n    ${bold('Add these DNS records at your registrar:')}\n\n`);
-  if (isApex) {
-    process.stdout.write(`      ${dim('(Apex domain — use ALIAS/ANAME if your registrar supports it,')}\n`);
-    process.stdout.write(`      ${dim('otherwise use A/AAAA records pointing to Cloudflare.)')}\n\n`);
-  }
+  process.stdout.write(`\n    ${bold('Add this DNS record at your registrar:')}\n\n`);
   process.stdout.write(`      Type:  CNAME\n`);
   process.stdout.write(`      Name:  ${d.domain}\n`);
   process.stdout.write(`      Value: ${bold(`proappstore-${appId}.pages.dev`)}\n`);
-  if (vd.txt_name && vd.txt_value) {
-    process.stdout.write(`\n      ${dim('Plus a TXT record for ownership verification:')}\n`);
-    process.stdout.write(`      Type:  TXT\n`);
-    process.stdout.write(`      Name:  ${vd.txt_name}\n`);
-    process.stdout.write(`      Value: ${vd.txt_value}\n`);
-  }
-  if (valid.txt_name && valid.txt_value && valid.txt_name !== vd.txt_name) {
-    process.stdout.write(`\n      ${dim('Plus a TXT record for SSL validation:')}\n`);
+  process.stdout.write(
+    `\n    ${dim('Apex domains (e.g. example.com without a subdomain) can\'t use a raw CNAME')}\n` +
+      `    ${dim('per RFC. Use ALIAS/ANAME if your registrar supports it, or set A/AAAA')}\n` +
+      `    ${dim('records pointing to Cloudflare anycast IPs (CF will tell you which).')}\n`,
+  );
+  // CF only emits TXT validation when HTTP-01 isn't possible — usually
+  // because DNS isn't yet pointing correctly. When method is 'txt', the
+  // owner needs this record too.
+  if (valid.method === 'txt' && valid.txt_name && valid.txt_value) {
+    process.stdout.write(`\n      ${dim('Plus this TXT record for SSL validation:')}\n`);
     process.stdout.write(`      Type:  TXT\n`);
     process.stdout.write(`      Name:  ${valid.txt_name}\n`);
     process.stdout.write(`      Value: ${valid.txt_value}\n`);
+  }
+  if (vd.error_message) {
+    process.stdout.write(`\n    ${red('Last verification error:')} ${vd.error_message}\n`);
+  } else if (valid.error_message) {
+    process.stdout.write(`\n    ${red('Last validation error:')} ${valid.error_message}\n`);
   }
   process.stdout.write(`\n    After adding the records, run: ${bold(`pas domain verify ${d.domain}`)}\n`);
 }
