@@ -343,6 +343,40 @@ describe('POST /v1/apps/:appId/domains/:domain/verify', () => {
     expect(admin.calls.map((c) => c.method)).toEqual(['PATCH']);
   });
 
+  // Regression: previously, if CF returned `{success:true, result:null}`
+  // (malformed/empty), the route persisted derived 'pending', silently
+  // demoting active domains. Now /verify leaves the row untouched and
+  // returns the existing state.
+  it('does NOT downgrade an active row when CF returns empty result', async () => {
+    const ownerCheck = mockStmt({ first: { creator_id: 'gh:1' } });
+    const readBack = mockStmt({
+      first: {
+        app_id: 'meetup',
+        domain: 'meetup.example.com',
+        status: 'active',
+        cf_status: 'active',
+        cf_payload: '{}',
+        added_at: 1000,
+        verified_at: 5000,
+      },
+    });
+    const db = mockD1(ownerCheck, readBack);
+    const admin = mockAdmin([
+      // CF says success but returns no Domain object — defensive case.
+      { status: 200, body: { success: true, result: null } },
+    ]);
+    const res = await app.request(
+      '/v1/apps/meetup/domains/meetup.example.com/verify',
+      { method: 'POST', headers: { Authorization: 'Bearer t' } },
+      makeEnv({ db, admin: admin.fetcher }),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { domain: { status: string } };
+    expect(body.domain.status).toBe('active');
+    // Two prepares: owner check + read-back. No UPDATE was issued.
+    expect(db.prepare).toHaveBeenCalledTimes(2);
+  });
+
   // Regression for the field-name bug: CF Pages returns `status`, not
   // `verification_status`. Earlier code read the wrong field, so domains
   // never flipped from pending → active.

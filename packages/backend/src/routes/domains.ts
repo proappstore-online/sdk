@@ -245,6 +245,21 @@ domainRoutes.post(
     if (!ok) throw new HttpError(error || `CF returned ${cf.status}`, cf.status >= 400 && cf.status < 500 ? cf.status : 502);
 
     const cfStatus = readCfStatus(result);
+    // Defensive: if CF returned a positive ack but no usable status (malformed
+    // response, transient CF blip, schema drift), DO NOT persist — otherwise
+    // a previously-active row would silently demote to 'pending' because
+    // deriveStatus(null) === 'pending'. Return the existing row unchanged.
+    if (!result || cfStatus === null) {
+      const row = await c.env.DB.prepare(
+        `SELECT app_id, domain, status, cf_status, cf_payload, added_at, verified_at
+         FROM app_custom_domains WHERE app_id = ? AND domain = ?`,
+      )
+        .bind(appId, domain)
+        .first<DomainRow>();
+      if (!row) throw new HttpError('domain not attached to this app', 404);
+      return c.json({ domain: dtoFromRow(row) });
+    }
+
     const status = deriveStatus(cfStatus);
     const now = Date.now();
     const updated = await c.env.DB.prepare(
@@ -253,7 +268,7 @@ domainRoutes.post(
            verified_at = CASE WHEN ? = 'active' AND verified_at IS NULL THEN ? ELSE verified_at END
        WHERE app_id = ? AND domain = ?`,
     )
-      .bind(status, cfStatus, JSON.stringify(result ?? {}), status, now, appId, domain)
+      .bind(status, cfStatus, JSON.stringify(result), status, now, appId, domain)
       .run();
     if ((updated.meta?.changes ?? 0) === 0) {
       throw new HttpError('domain not attached to this app', 404);
