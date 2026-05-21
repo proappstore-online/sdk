@@ -47,6 +47,7 @@ const TEMPLATE_FILES: Record<string, string> = {
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "prebuild": "npx -y @proappstore/cli@latest check",
     "build": "tsc -b && vite build",
     "preview": "vite preview"
   },
